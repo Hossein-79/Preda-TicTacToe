@@ -1,0 +1,169 @@
+contract TicTacToe {
+
+    struct GameData {
+        address playerOne;
+        address PlayerTwo;
+        
+        uint8 winner;
+        uint8 turn;
+    }
+
+    @global map<address, uint32> addressList;
+    @global array<GameData> games;
+
+    @address int64 score;
+    @address bool isInGame;
+    @address array<address> invites;
+
+    // 0 | 1 | 2
+    // 3 | 4 | 5
+    // 6 | 7 | 8
+    @address array<bool> board;
+    
+    @address function challenge (address opponent) export {
+        relay@opponent () {
+            if (isInGame) {
+                __debug.print("your opponent is in another game but u can invite him");
+            }
+
+            invites.push(__transaction.get_sender());
+        }
+    }
+
+    @address function bool acceptInvitation(address opponent, uint8 firstMove) export {
+        if(isInGame)
+        {
+            __debug.print("you are already in a game");
+            return false;
+        }
+        
+        for (uint32 index = 0u; index < invites.length(); index++)
+        {
+            if(invites[index] == opponent)
+            {
+                bool opponentIsFree = true;
+                
+                relay@opponent (^opponentIsFree){
+                    if (isInGame) {
+                        opponentIsFree = false;
+                    }
+                }
+
+                if(!opponentIsFree) {
+                    __debug.print("your opponent is in another game but u can invite him");
+                    return false;
+                }
+
+                relay@global (^opponent) {
+                    games.push(GameData(__transaction.get_sender(), opponent, 0u8, 0u8));
+
+                    addressList[opponent] = games.length() - 1u32;
+                    addressList[__transaction.get_sender()] = games.length() - 1u32;
+                }
+
+                isInGame = true;
+                board.set_length(0u32);
+                board.set_length(9u32);
+
+                relay@opponent ()
+                {
+                    isInGame = true;
+                    for (uint32 i = 0u; i < board.length(); i++)
+                    {
+                        board.pop();
+                    }
+                    board.set_length(9u32);
+                }
+            }
+        }
+        return true;
+    }
+
+    // return 0 => faild to move
+    // return 1 => sussess full move
+    // return 2 => you won the game with this move
+    @address function uint8 makeMove(uint32 move) export {
+        if (!isInGame || move > 8u32) {
+            return 0u8;
+        }
+
+        uint32 gameIndex;
+        address opponent;
+        GameData gameData;
+        uint8 playerNumber;
+
+        relay@global (^gameIndex, ^opponent, ^gameData) {
+            gameIndex = addressList[__transaction.get_sender()];
+
+            gameData = games[gameIndex];
+        }
+        
+        if (gameData.winner != 0u8)
+        {
+            return 0u8;
+        }
+
+        if (gameData.playerOne != __transaction.get_sender()) {
+            opponent = gameData.PlayerTwo;
+            playerNumber = 1u8;
+            if (gameData.turn != 1u8) {
+                return 0u8;
+            }
+        }
+        else { 
+            opponent = gameData.playerOne; 
+            playerNumber = 2u8;
+            if (gameData.turn != 2u8) {
+                return 0u8;
+            }
+        }
+
+        bool moveIsValid = true;
+        if  (board[move] == true) {
+            moveIsValid = false;
+        }
+
+        relay@opponent (^moveIsValid, ^move) {
+            if  (board[move] == true) {
+                moveIsValid = false;
+            }
+        }
+
+        if (!moveIsValid) {
+            return 0u8;
+        }
+        
+        board[move] = true;
+        
+        // check win conditions
+        if ((board[0u32] == true && board[1u32] == true && board[2u32] == true) ||
+            (board[3u32] == true && board[4u32] == true && board[5u32] == true) ||
+            (board[6u32] == true && board[7u32] == true && board[8u32] == true) ||
+            (board[0u32] == true && board[3u32] == true && board[6u32] == true) ||
+            (board[1u32] == true && board[4u32] == true && board[7u32] == true) ||
+            (board[2u32] == true && board[5u32] == true && board[8u32] == true) ||
+            (board[0u32] == true && board[4u32] == true && board[8u32] == true) || 
+            (board[2u32] == true && board[4u32] == true && board[6u32] == true) ) {
+
+                score++;
+                isInGame = false;
+                
+                relay@opponent ()
+                {
+                    score--;
+                    isInGame = false;
+                }
+
+                relay@global (^gameIndex, ^playerNumber){
+                    games[gameIndex].winner = playerNumber;
+                }
+                return 2u8;
+            }
+        
+        relay@global (^gameIndex, ^playerNumber){
+            games[gameIndex].turn = playerNumber == 1u8 ? 2u8 : 1u8;
+        }
+
+        return 1u8;
+    }
+}
